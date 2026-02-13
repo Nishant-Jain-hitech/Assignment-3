@@ -49,8 +49,27 @@ class TaskDB(Base):
         if not self.due_date:
             return None
         return (self.due_date-date.today()).days
-    
 
+
+    @staticmethod
+    def validate_status_transition(old_status, new_status):
+        if old_status=="completed" and new_status!="completed":
+            return False 
+        if old_status=="pending" and new_status=="completed":
+            return False 
+        if old_status=="in_progress" and new_status=="pending":
+            return False
+
+        return True
+
+
+    @staticmethod
+    def can_create_high_priority(db):
+        counter=db.query(TaskDB).filter(TaskDB.priority=="high",TaskDB.status=="pending").count()
+        if counter>=5:
+            return False
+        return True
+            
 
 Base.metadata.create_all(bind=engine)
 
@@ -139,6 +158,9 @@ class TaskResponse(BaseModel):
 
 @app.post("/tasks",response_model=TaskResponse)
 def create_task(task:TaskCreate,db:Session=Depends(get_db)):
+    if task.priority=="high" and task.status=="pending":
+        if not TaskDB.can_create_high_priority(db):
+            raise HTTPException(status_code=422, detail="Bhai 5 se zyada high priority tasks nhi ho sakte")
     db_task = TaskDB(**task.model_dump())
     db.add(db_task)
     db.commit()
@@ -202,16 +224,16 @@ def get_task_by_id(task_id: int, db: Session = Depends(get_db)):
 
 @app.put("/tasks/{task_id}", response_model=TaskResponse | dict)
 def update_task(task_id: int, task: TaskCreate, db: Session = Depends(get_db)):
+    if not TaskDB.can_create_high_priority(db):
+        raise HTTPException(status_code=422, detail="Bhai 5 se zyada high priority tasks nhi ho sakte")
+
     db_task = db.query(TaskDB).filter(TaskDB.id == task_id).first()
     if not db_task:
         return {"message": "jo nhi h usko update kese kru bhai"}
 
-    if db_task.status.lower() == "pending" and task.status.lower() == "completed":
-        return {"message": "pending se completed pe jump nhi kar sakta"}
-    elif db_task.status.lower() == "completed":
-        return {"message": "ab kya change kar rha h, complete ho gya h"}
-    elif db_task.status.lower() == "in_progress" and task.status.lower() == "pending":
-        return {"message": "in_progress se pending pe jaega kya"}
+
+    if not TaskDB.validate_status_transition(db_task.status,task.status):
+        raise HTTPException(status_code=422, detail="Bhai status transition nhi ho sakta")
 
     db_task.title = task.title
     db_task.description = task.description
