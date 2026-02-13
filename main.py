@@ -42,6 +42,19 @@ def paginate(query, page, limit):
     return query[(page - 1) * limit : page * limit]
 
 
+def tasks_summary(db:Session,id:int):
+    task=get_task_or_404(db,id)
+    return {
+        "id":task.id,
+        "title":task.title,
+        "status":task.status,
+        "due_date":task.due_date,
+        "is_overdue":task.is_overdue,
+        "days_left":task.days_left,
+        "message":"task is overdue" if task.is_overdue else "task is not overdue"
+    }
+
+
 class TaskDB(Base):
     __tablename__ = "tasks"
 
@@ -187,8 +200,6 @@ def create_task(task:TaskCreate,db:Session=Depends(get_db)):
     return db_task
 
 
-
-
 @app.get("/tasks", response_model=List[TaskResponse] | dict)
 def get_tasks(
     status: str | None = None,
@@ -279,3 +290,8 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
         db.delete(db_task)
         db.commit()
         raise HTTPException(status_code=204, detail="ho gya bhai delete!")
+
+
+@app.get("/tasks/summary/{id}",response_model=dict)
+def get_task_summary(id:int,db:Session=Depends(get_db)):
+    return tasks_summary(db,id)
