@@ -7,6 +7,7 @@ from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import Column, Integer, String, create_engine, Date, DateTime
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 import re
+# from helperfunction.helper import get_task_or_404, apply_filters, paginate
 
 
 DATABASE_URL = "sqlite:///./tasksdb.db"
@@ -21,6 +22,24 @@ app = FastAPI()
 @app.get("/")
 async def root():
     return {"message": "Hello"}
+
+
+def get_task_or_404(db, id):
+    task=db.query(TaskDB).filter(TaskDB.id==id).first()
+    if not task:
+        raise HTTPException(status_code=404,detail="Task nhi mila")
+    return task
+
+
+def apply_filters(db, query, filters):
+    if query=="status":
+        return db.query(TaskDB).filter(TaskDB.status==filters).all()
+    if query=="priority":
+        return db.query(TaskDB).filter(TaskDB.priority==filters).all()
+
+
+def paginate(query, page, limit):
+    return query[(page - 1) * limit : page * limit]
 
 
 class TaskDB(Base):
@@ -174,18 +193,25 @@ def create_task(task:TaskCreate,db:Session=Depends(get_db)):
 def get_tasks(
     status: str | None = None,
     priority: str | None = None,
-    overdue: bool | None = None,
     page: int | None = 1,
     limit: int | None = 10,
-    starts: str | None = None,
-    search: str | None = None,
-    ends: str | None = None,
     db: Session = Depends(get_db),
 ):
     tasks = db.query(TaskDB).all()
+
+    if status:
+        status_tasks=apply_filters(db,"status",status)
+        return status_tasks
+    if priority:
+        priority_tasks=apply_filters(db,"priority",priority)
+        return priority_tasks
+        
+    if page and limit:
+        paginated_tasks=paginate(tasks,page,limit)
+        return paginated_tasks
+
+
     return tasks
-
-
 
 
 @app.get("/tasks/stats", response_model=dict)
@@ -215,10 +241,8 @@ def get_stats(db: Session = Depends(get_db)):
 
 @app.get("/tasks/{task_id}", response_model=TaskResponse | dict)
 def get_task_by_id(task_id: int, db: Session = Depends(get_db)):
-    task = db.query(TaskDB).filter(TaskDB.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Kya bhai kuchh bhi maang rha h")
-    return task
+    db_task=get_task_or_404(db,task_id)
+    return db_task
 
 
 
@@ -227,10 +251,7 @@ def update_task(task_id: int, task: TaskCreate, db: Session = Depends(get_db)):
     if not TaskDB.can_create_high_priority(db):
         raise HTTPException(status_code=422, detail="Bhai 5 se zyada high priority tasks nhi ho sakte")
 
-    db_task = db.query(TaskDB).filter(TaskDB.id == task_id).first()
-    if not db_task:
-        return {"message": "jo nhi h usko update kese kru bhai"}
-
+    db_task=get_task_or_404(db,task_id)
 
     if not TaskDB.validate_status_transition(db_task.status,task.status):
         raise HTTPException(status_code=422, detail="Bhai status transition nhi ho sakta")
@@ -251,9 +272,9 @@ def update_task(task_id: int, task: TaskCreate, db: Session = Depends(get_db)):
 
 @app.delete("/tasks/{task_id}", response_model=dict)
 def delete_task(task_id: int, db: Session = Depends(get_db)):
-    db_task = db.query(TaskDB).filter(TaskDB.id == task_id).first()
+    db_task = get_task_or_404
     if not db_task:
-        return {"message": "mat kar bhai ise delete, h hi nhi"}
+        raise HTTPException(status_code=404, detail="Task h hi nhi!")
     else:
         db.delete(db_task)
         db.commit()
