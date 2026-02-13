@@ -35,6 +35,23 @@ class TaskDB(Base):
     completed_at = Column(DateTime, nullable=True)
 
 
+    @property
+    def is_overdue(self):
+        if self.status !="completed" and self.due_date<date.today():
+            return True
+        return False
+
+
+    @property
+    def days_left(self):
+        if self.status=="completed":
+            return None
+        if not self.due_date:
+            return None
+        return (self.due_date-date.today()).days
+    
+
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -115,8 +132,8 @@ class TaskResponse(BaseModel):
     status: Optional[str]
     due_date: date
     completed_at: Optional[datetime]
-    # overdue: Optional[bool]
-
+    is_overdue:Optional[bool]
+    days_left:Optional[int]
 
 
 
